@@ -9,8 +9,7 @@ from database import engine, Base, get_db
 import models, schemas, cf_client
 
 # Initialize database tables
-Base.metadata.create_all(bind=engine)
-
+# Base.metadata.create_all(bind=engine) # Removed to prevent Vercel invocation crash on startup
 app = FastAPI(title="Codeforces Progress Monitor")
 
 # Configure CORS
