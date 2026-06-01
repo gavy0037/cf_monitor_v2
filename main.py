@@ -5,8 +5,8 @@ from sqlalchemy.orm import Session
 from datetime import datetime, date as date_type, timedelta
 import os
 
-from .database import engine, Base, get_db
-from . import models, schemas, cf_client
+from database import engine, Base, get_db
+import models, schemas, cf_client
 
 # Initialize database tables
 Base.metadata.create_all(bind=engine)
@@ -269,8 +269,7 @@ def get_upsolve_tracker(handle: str = Query("Gavy0037"), db: Session = Depends(g
         
     return results
 
-# Serve Frontend static files if we are in production/deployment
-# Check if frontend folder exists
-frontend_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "frontend")
+# Serve Frontend static files
+frontend_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "frontend")
 if os.path.exists(frontend_path):
     app.mount("/", StaticFiles(directory=frontend_path, html=True), name="frontend")

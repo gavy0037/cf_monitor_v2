@@ -49,7 +49,7 @@ pip install -r requirements.txt
 
 3. Launch the FastAPI development server:
 ```bash
-uvicorn backend.main:app --reload
+uvicorn main:app --reload
 ```
 
 4. Open your web browser and navigate to:
