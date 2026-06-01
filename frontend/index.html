@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Codeforces Progress Monitor</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+
+    <script src="app.js"></script>
+</head>
+<body>
+    <!-- Login Screen -->
+    <div class="login-screen" id="login-screen">
+        <div class="login-logo">
+            <span class="logo-icon">📊</span>
+            <h1>CF Monitor</h1>
+        </div>
+        <div class="login-wrapper">
+            <div class="login-card">
+                <p class="login-desc">Enter your Codeforces handle to monitor your daily progress and log problem reflections.</p>
+                <form id="login-form">
+                    <div class="form-group">
+                        <label for="login-handle-input">Codeforces Handle</label>
+                        <input type="text" id="login-handle-input" placeholder="e.g., Gavy0037" required>
+                    </div>
+                    <button type="submit" id="login-submit-btn" class="btn btn-primary btn-block">Enter Dashboard</button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Application Dashboard (hidden by default) -->
+    <div class="app-container" id="app-container" style="display: none;">
+        <!-- Sidebar Navigation -->
+        <aside class="sidebar">
+            <div class="sidebar-brand">
+                <span class="logo-icon">📊</span>
+                <h2>CF Monitor</h2>
+            </div>
+            <nav class="sidebar-menu">
+                <button class="menu-btn active" data-target="dashboard-section">
+                    <span class="icon">🏠</span> Dashboard
+                </button>
+                <button class="menu-btn" data-target="history-section">
+                    <span class="icon">📅</span> History Tracker
+                </button>
+                <button class="menu-btn" data-target="mistake-section">
+                    <span class="icon">📝</span> Log a Mistake
+                </button>
+                <button class="menu-btn" data-target="upsolve-section">
+                    <span class="icon">🚀</span> Upsolve Tracker
+                </button>
+            </nav>
+            <div class="sidebar-footer">
+                <button id="logout-btn" class="btn btn-logout btn-block">🚪 Switch Handle</button>
+                <p style="margin-top: 12px;">IIIT-H CP Coaching</p>
+            </div>
+        </aside>
+
+        <!-- Main Content Area -->
+        <main class="main-content">
+            <!-- Header -->
+            <header class="main-header">
+                <div class="header-user">
+                    <h1 id="header-title">Welcome back, <span id="cf-handle-display">-</span></h1>
+                    <span class="rank-badge" id="rank-badge-display">newbie</span>
+                </div>
+                <div class="header-actions">
+                    <button id="refresh-btn" class="btn btn-primary">🔄 Sync API Data</button>
+                </div>
+            </header>
+
+            <!-- Dashboard Section -->
+            <section id="dashboard-section" class="content-section active">
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <div class="stat-icon purple">⭐</div>
+                        <div class="stat-info">
+                            <h3>Current Rating</h3>
+                            <p class="stat-val" id="stat-rating">-</p>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon green">✅</div>
+                        <div class="stat-info">
+                            <h3>Solved Today</h3>
+                            <p class="stat-val" id="stat-solved-today">0</p>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon orange">🎯</div>
+                        <div class="stat-info">
+                            <h3>Avg Difficulty Today</h3>
+                            <p class="stat-val" id="stat-avg-diff">0</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="dashboard-grid">
+                    <!-- Recent Submissions Today -->
+                    <div class="dashboard-card submissions-card">
+                        <div class="card-header">
+                            <h2>Submissions Today</h2>
+                            <div class="submissions-stats-badges" id="sub-stats-badges">
+                                <span class="badge ac-badge">AC: 0</span>
+                                <span class="badge wa-badge">WA: 0</span>
+                            </div>
+                        </div>
+                        <div class="card-content">
+                            <ul class="submissions-list" id="submissions-list-display">
+                                <li class="empty-list-msg">Sync to view your submissions today.</li>
+                            </ul>
+                        </div>
+                    </div>
+
+                    <!-- Daily Quick Log Form -->
+                    <div class="dashboard-card quick-log-card">
+                        <div class="card-header">
+                            <h2>Log a Struggle / Mistake</h2>
+                        </div>
+                        <div class="card-content">
+                            <form id="quick-log-form">
+                                <div class="form-group">
+                                    <label for="log-problem-id">Problem ID</label>
+                                    <input type="text" id="log-problem-id" placeholder="e.g., 1800C" required>
+                                </div>
+                                <div class="form-group">
+                                    <label for="log-problem-title">Problem Title</label>
+                                    <input type="text" id="log-problem-title" placeholder="e.g., Remove Two Letters" required>
+                                </div>
+                                <div class="form-row">
+                                    <div class="form-group">
+                                        <label for="log-rating">Rating (Optional)</label>
+                                        <input type="number" id="log-rating" placeholder="e.g., 1200">
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="log-status">Verdict</label>
+                                        <select id="log-status" required>
+                                            <option value="AC">Accepted (AC)</option>
+                                            <option value="FAILED">Attempted & Bailed</option>
+                                            <option value="UP_SOLVING">Upsolving</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                <div class="form-group">
+                                    <label for="log-mistake">Mistake Category</label>
+                                    <select id="log-mistake" required>
+                                        <option value="">-- Select Category --</option>
+                                        <option value="BAILED_EARLY">Bailed Early (&lt; 45 mins)</option>
+                                        <option value="GREEDY_MISS">Missed Greedy Property</option>
+                                        <option value="IMPLEMENTATION">Implementation Bug / Off-by-one</option>
+                                        <option value="COMPLEXITY">TLA / MLE / Complexity Error</option>
+                                        <option value="PAPER_FAIL">Skipped Paper Examples first</option>
+                                        <option value="DP_TUNNEL">DP Tunnel Vision (DP instead of Greedy/Math)</option>
+                                        <option value="NONE">None (Clean Solve)</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label for="log-notes">What should you remember next time?</label>
+                                    <textarea id="log-notes" rows="3" placeholder="Write down the key insight or why you got stuck..."></textarea>
+                                </div>
+                                <button type="submit" class="btn btn-primary btn-block">Save Reflection Log</button>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- History Section -->
+            <section id="history-section" class="content-section">
+                <div class="section-desc-card">
+                    <h2>Historical Progress Tracker</h2>
+                    <p>Track your daily statistics cached in SQLite. Click on any date below to inspect solved problems and mistake reflections logged on that day.</p>
+                </div>
+                <div class="history-grid">
+                    <div class="history-timeline-card">
+                        <div class="card-header">
+                            <h2>Activity Log</h2>
+                        </div>
+                        <div class="card-content">
+                            <div class="timeline-list" id="history-timeline-list">
+                                <p class="empty-list-msg">No historical activity logged yet.</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="history-detail-card" id="history-detail-panel">
+                        <div class="card-header">
+                            <h2>Day Breakdown</h2>
+                            <span class="badge" id="history-detail-date">Select a day</span>
+                        </div>
+                        <div class="card-content" id="history-detail-content">
+                            <p class="empty-list-msg">Click on any day in the activity timeline to inspect the details.</p>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Log Mistake Section -->
+            <section id="mistake-section" class="content-section">
+                <div class="max-width-card">
+                    <div class="card-header">
+                        <h2>Register Problem Mistake & Reflection</h2>
+                    </div>
+                    <div class="card-content">
+                        <p class="form-desc">Be honest with your log. Writing down why you made a mistake or why you got stuck is the only way to avoid repeating it.</p>
+                        <form id="full-log-form">
+                            <div class="form-group">
+                                <label for="full-problem-id">Problem ID</label>
+                                <input type="text" id="full-problem-id" placeholder="e.g., 1800C" required>
+                            </div>
+                            <div class="form-group">
+                                <label for="full-problem-title">Problem Title</label>
+                                <input type="text" id="full-problem-title" placeholder="e.g., Remove Two Letters" required>
+                            </div>
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label for="full-rating">Rating</label>
+                                    <input type="number" id="full-rating" placeholder="e.g., 1200">
+                                </div>
+                                <div class="form-group">
+                                    <label for="full-status">Status</label>
+                                    <select id="full-status" required>
+                                        <option value="AC">Accepted (AC)</option>
+                                        <option value="FAILED">Attempted & Bailed</option>
+                                        <option value="UP_SOLVING">Upsolving</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <label for="full-mistake">Mistake Category</label>
+                                <select id="full-mistake" required>
+                                    <option value="">-- Select Category --</option>
+                                    <option value="BAILED_EARLY">Bailed Early (&lt; 45 mins)</option>
+                                    <option value="GREEDY_MISS">Missed Greedy Property</option>
+                                    <option value="IMPLEMENTATION">Implementation Bug / Off-by-one</option>
+                                    <option value="COMPLEXITY">TLA / MLE / Complexity Error</option>
+                                    <option value="PAPER_FAIL">Skipped Paper Examples first</option>
+                                    <option value="DP_TUNNEL">DP Tunnel Vision (DP instead of Greedy/Math)</option>
+                                    <option value="NONE">None (Clean Solve)</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label for="full-notes">Reflection / Key Insight to Remember</label>
+                                <textarea id="full-notes" rows="6" placeholder="What property did you miss? How does the smallest example on paper behave?" required></textarea>
+                            </div>
+                            <button type="submit" class="btn btn-primary">Save Reflection Log</button>
+                        </form>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Upsolve Tracker Section -->
+            <section id="upsolve-section" class="content-section">
+                <div class="section-desc-card">
+                    <h2>Problem C Upsolve Tracker</h2>
+                    <p>Upsolving contest problem C is the most critical checkpoint for transitioning from 1150 to 1400 rating. Below are your last 5 contests and the status of Problem C.</p>
+                </div>
+                <div class="max-width-card">
+                    <div class="card-header">
+                        <h2>Upsolve Checklist</h2>
+                    </div>
+                    <div class="card-content">
+                        <div class="upsolve-list" id="upsolve-list-display">
+                            <p class="empty-list-msg">Loading upsolve tracking...</p>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+</body>
+</html>
