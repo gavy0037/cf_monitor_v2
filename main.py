@@ -179,13 +179,68 @@ def backfill_history(handle: str, db: Session = Depends(get_db)):
 
 @app.get("/api/history")
 def get_history(handle: str, db: Session = Depends(get_db)):
+    # Automatically trigger backfill if no past data exists
+    today_str = datetime.utcnow().strftime('%Y-%m-%d')
+    existing_history = db.query(models.DailyStats).filter(
+        models.DailyStats.handle == handle,
+        models.DailyStats.date < today_str
+    ).first()
+    
+    if not existing_history:
+        try:
+            backfill_history(handle, db)
+        except HTTPException:
+            pass # Ignore if it raises 404 due to no submissions
+            
     history = db.query(models.DailyStats).filter(models.DailyStats.handle == handle).order_by(models.DailyStats.date.desc()).all()
     return history
+
+def populate_database(handle: str, target_date: str, db: Session):
+    submissions = cf_client.get_user_status(handle, count=1000)
+    
+    ac_set = set()
+    wa_count = 0
+    difficulties = []
+    
+    if submissions:
+        for sub in submissions:
+            creation_time = sub.get("creationTimeSeconds", 0)
+            sub_date_str = datetime.utcfromtimestamp(creation_time).strftime('%Y-%m-%d')
+            
+            if sub_date_str == target_date:
+                verdict = sub.get("verdict")
+                prob = sub.get("problem", {})
+                prob_id = f"{prob.get('contestId')}{prob.get('index')}"
+                
+                if verdict == "OK" and prob_id not in ac_set:
+                    ac_set.add(prob_id)
+                    rating = prob.get("rating", 0)
+                    if rating:
+                        difficulties.append(rating)
+                elif verdict != "OK":
+                    wa_count += 1
+                    
+    ac_count = len(ac_set)
+    avg_diff = round(sum(difficulties) / len(difficulties), 1) if difficulties else 0.0
+    
+    db_stats = models.DailyStats(
+        date=target_date,
+        handle=handle,
+        accepted_count=ac_count,
+        wa_count=wa_count,
+        average_difficulty=avg_diff
+    )
+    db.add(db_stats)
+    db.commit()
 
 @app.get("/api/history/{date}")
 def get_history_detail(date: str, handle: str, db: Session = Depends(get_db)):
     # Get stats for the day
     stats = db.query(models.DailyStats).filter(models.DailyStats.date == date, models.DailyStats.handle == handle).first()
+    
+    if not stats:
+        populate_database(handle, date, db)
+        stats = db.query(models.DailyStats).filter(models.DailyStats.date == date, models.DailyStats.handle == handle).first()
     
     # Get mistake logs for the day
     logs = db.query(models.ProblemLog).filter(models.ProblemLog.solved_date == date, models.ProblemLog.handle == handle).all()
