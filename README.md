@@ -57,10 +57,9 @@ uv run uvicorn main:app --reload
 
 ## 🧠 What I Learned
 
-- **API Integration & Caching**: Designed efficient backend logic to fetch, parse, and locally cache bulk data from the public Codeforces API without hitting rate limits.
-- **Full-Stack Data Flow**: Implemented a complete flow from a vanilla JavaScript frontend using `fetch` to a FastAPI backend routing requests to an SQLite database.
-- **Database Design**: Structured a relational schema using SQLAlchemy to handle multi-user scenarios and daily time-series data aggregation.
-- **Advanced CSS Layouts**: Built a responsive, modern UI from scratch utilizing CSS Grid, Flexbox, custom properties, and micro-animations without relying on external UI libraries.
+- **API Integration & Caching**: Engineered robust backend logic to seamlessly fetch and parse data from the Codeforces API, implementing intelligent caching to prevent rate limits.
+- **PostgreSQL Database Management**: Designed and structured a relational schema using a Postgres database (via Supabase) to handle multi-user scenarios and daily time-series data aggregation.
+- **Architectural Trade-offs**: Successfully navigated system design decisions by actively balancing the trade-offs between real-time API fetch speeds and local database caching to ensure a lightning-fast user experience.
 
 ## 👤 Author
 
