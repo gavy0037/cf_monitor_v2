@@ -42,14 +42,14 @@ git clone <your-repo-url>
 cd cf_monitor
 ```
 
-2. Install the required backend dependencies:
+2. Install dependencies using `uv` (the fast Python package installer and resolver):
 ```bash
-pip install -r requirements.txt
+uv sync
 ```
 
-3. Launch the FastAPI development server:
+3. Launch the FastAPI development server using `uv`:
 ```bash
-uvicorn main:app --reload
+uv run uvicorn main:app --reload
 ```
 
 4. Open your web browser and navigate to:
