@@ -9,6 +9,8 @@ class UserProfile(Base):
     current_rating = Column(Integer, default=0)
     max_rating = Column(Integer, default=0)
     last_fetched = Column(DateTime, default=datetime.utcnow)
+    last_submission_id = Column(Integer, nullable=True)
+    last_submission_time = Column(Integer, nullable=True)
 
 class DailyStats(Base):
     __tablename__ = "daily_stats"

@@ -103,17 +103,31 @@ def backfill_history(handle: str, db: Session = Depends(get_db)):
     for the past 5 days (excluding today) for the given handle.
     Called once on login to pre-populate historical data.
     """
-    # Check if historical data already exists for this handle
-    today_str = datetime.utcnow().strftime('%Y-%m-%d')
-    existing_history = db.query(models.DailyStats).filter(
-        models.DailyStats.handle == handle,
-        models.DailyStats.date < today_str
+
+    # NEW incremental sync check
+    db_profile = db.query(models.UserProfile).filter(
+        models.UserProfile.cf_handle == handle
     ).first()
-    
-    if existing_history:
-        return {"handle": handle, "message": "Historical data already exists. Skipping backfill.", "backfilled_dates": [], "summary": []}
+
+    latest_submission = cf_client.get_latest_submission(handle)
+
+    if latest_submission and db_profile:
+
+        latest_submission_id = latest_submission.get("id")
+
+        if (
+            db_profile.last_submission_id is not None
+            and db_profile.last_submission_id == latest_submission_id
+        ):
+            return {
+                "handle": handle,
+                "message": "No new submissions detected. Skipping backfill.",
+                "backfilled_dates": [],
+                "summary": []
+            }
 
     submissions = cf_client.get_user_status(handle, count=500)
+
     if not submissions:
         raise HTTPException(status_code=404, detail=f"No submissions found for handle '{handle}'.")
 
@@ -150,7 +164,11 @@ def backfill_history(handle: str, db: Session = Depends(get_db)):
         diffs = bucket["difficulties"]
         avg_diff = round(sum(diffs) / len(diffs), 1) if diffs else 0.0
 
-        db_stats = db.query(models.DailyStats).filter(models.DailyStats.date == date_str, models.DailyStats.handle == handle).first()
+        db_stats = db.query(models.DailyStats).filter(
+            models.DailyStats.date == date_str,
+            models.DailyStats.handle == handle
+        ).first()
+
         if not db_stats:
             db_stats = models.DailyStats(date=date_str, handle=handle)
             db.add(db_stats)
@@ -158,6 +176,10 @@ def backfill_history(handle: str, db: Session = Depends(get_db)):
         db_stats.accepted_count = ac_count
         db_stats.wa_count = wa_count
         db_stats.average_difficulty = avg_diff
+
+    if latest_submission and db_profile:
+        db_profile.last_submission_id = latest_submission.get("id")
+        db_profile.last_submission_time = latest_submission.get("creationTimeSeconds")
 
     db.commit()
 
@@ -169,13 +191,14 @@ def backfill_history(handle: str, db: Session = Depends(get_db)):
                 "date": d,
                 "ac": len(day_buckets[d]["ac"]),
                 "wa": day_buckets[d]["wa"],
-                "avg_difficulty": round(sum(day_buckets[d]["difficulties"]) / len(day_buckets[d]["difficulties"]), 1)
-                    if day_buckets[d]["difficulties"] else 0.0
+                "avg_difficulty": round(
+                    sum(day_buckets[d]["difficulties"]) / len(day_buckets[d]["difficulties"]), 1
+                ) if day_buckets[d]["difficulties"] else 0.0
             }
             for d in target_dates
         ]
     }
-
+    
 @app.get("/api/history")
 def get_history(handle: str, db: Session = Depends(get_db)):
     # Automatically trigger backfill if no past data exists

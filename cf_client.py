@@ -25,3 +25,11 @@ def get_user_status(handle: str, count: int = 100) -> list:
     if data.get("status") == "OK":
         return data.get("result", [])
     return []
+
+def get_latest_submission(handle: str) -> dict:
+    submissions = get_user_status(handle, count=1)
+
+    if submissions:
+        return submissions[0]
+
+    return {}
