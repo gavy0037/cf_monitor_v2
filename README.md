@@ -18,7 +18,7 @@
 - **Real-Time Daily Dashboard**: Fetches data from the Codeforces API to display your current rating, daily accepted (AC) count, and wrong answer (WA) count.
 - **Historical Progress Tracking**: Caches daily performance metrics in a local SQLite database, allowing you to review specific problem logs and statistics from any previous day.
 - **Mistake & Reflection Logger**: A structured diary to categorize failed attempts (e.g., "Bailed Early", "Missed Greedy Property") and record key insights to prevent recurring errors.
-- **Contest Upsolve Tracker**: Automatically analyzes your recent contests to verify if critical problems (like Problem C) have been successfully upsolved.
+- **Global Contest Tracker**: A highly optimized background sync worker constantly cross-references the official Codeforces contest list with your submission history to detect your exact participation type (Real, Virtual, Practice, or Unattempted) and color-codes your UI accordingly.
 - **Persistent Multi-User Login**: Supports logging in with any Codeforces handle, caching the session locally, and separating historical data by user.
 
 ## 🛠️ Tech Stack
@@ -57,7 +57,8 @@ uv run uvicorn main:app --reload
 
 ## 🧠 What I Learned
 
-- **API Integration & Caching**: Engineered robust backend logic to seamlessly fetch and parse data from the Codeforces API, implementing intelligent caching to prevent rate limits.
+- **API Integration & Caching**: Engineered robust backend logic to seamlessly fetch and parse data from the Codeforces API, utilizing GZIP compression to reduce payload sizes by 90%.
+- **Background Async Workers**: Implemented FastAPI `BackgroundTasks` to perform massive network syncs (like downloading the global contest list) silently in the background, ensuring the UI always renders instantly from the local cache without freezing the server.
 - **PostgreSQL Database Management**: Designed and structured a relational schema using a Postgres database (via Supabase) to handle multi-user scenarios and daily time-series data aggregation.
 - **Architectural Trade-offs**: Successfully navigated system design decisions by actively balancing the trade-offs between real-time API fetch speeds and local database caching to ensure a lightning-fast user experience.
 
