@@ -345,8 +345,17 @@ def get_contest_tracker(background_tasks: BackgroundTasks, handle: str = Query("
     for c in latest_contests:
         c_info = contests_map[c.id]
         c_problems = list(c_info["problems_submitted"])
-        solved = "C" in c_info["problems_solved"]
-        attempted = "C" in c_info["problems_submitted"]
+        
+        has_c = any(p == "C" for p in c_info["problems_submitted"])
+        has_split = any(p in ["C1", "C2"] for p in c_info["problems_submitted"])
+        
+        attempted = has_c or has_split
+        
+        solved = False
+        if has_split:
+            solved = "C1" in c_info["problems_solved"] and "C2" in c_info["problems_solved"]
+        elif has_c:
+            solved = "C" in c_info["problems_solved"]
         
         # Determine actual participation type
         part_type = c_info["participation_type"]
