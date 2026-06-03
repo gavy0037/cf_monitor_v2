@@ -398,26 +398,27 @@ function loadDayDetails(date) {
         });
 }
 
-// Load Upsolve Tracker
+// Load Upsolve Tracker (now Contest Tracker)
 function loadUpsolveTracker() {
     const container = document.getElementById("upsolve-list-display");
-    container.innerHTML = '<p class="empty-list-msg">Loading upsolve tracking...</p>';
+    container.innerHTML = '<p class="empty-list-msg">Loading contest tracking...</p>';
 
-    fetch(`${API_BASE_URL}/api/contests/upsolve?handle=${document_handle}`)
+    fetch(`${API_BASE_URL}/api/contests/tracker?handle=${document_handle}`)
         .then(res => {
-            if (!res.ok) throw new Error("Failed to load upsolve tracker");
+            if (!res.ok) throw new Error("Failed to load contest tracker");
             return res.json();
         })
         .then(data => {
             container.innerHTML = "";
             if (data.length === 0) {
-                container.innerHTML = '<p class="empty-list-msg">No contest participation detected in recent submissions.</p>';
+                container.innerHTML = '<p class="empty-list-msg">No contest data available.</p>';
                 return;
             }
 
             data.forEach(contest => {
                 const div = document.createElement("div");
-                div.className = "upsolve-item";
+                const partTypeClass = contest.participation_type ? contest.participation_type.toLowerCase() : "unattempted";
+                div.className = `upsolve-item participation-${partTypeClass}`;
 
                 let statusClass = "not-attempted";
                 if (contest.c_status === "Solved") statusClass = "solved";
@@ -426,8 +427,8 @@ function loadUpsolveTracker() {
 
                 div.innerHTML = `
                     <div class="upsolve-left">
-                        <span class="upsolve-title">Contest #${contest.contest_id}</span>
-                        <span class="upsolve-meta">Your Submitted Problems: ${contest.submitted_problems.join(", ") || "None"}</span>
+                        <span class="upsolve-title">${contest.contest_name} (#${contest.contest_id})</span>
+                        <span class="upsolve-meta">Participation: <strong>${contest.participation_type}</strong> | Submitted: ${contest.submitted_problems.join(", ") || "None"}</span>
                     </div>
                     <span class="upsolve-status ${statusClass}">${contest.c_status}</span>
                 `;
@@ -435,7 +436,7 @@ function loadUpsolveTracker() {
             });
         })
         .catch(err => {
-            console.error("Upsolve tracker error:", err);
-            container.innerHTML = '<p class="empty-list-msg">Failed to load upsolve tracking data.</p>';
+            console.error("Contest tracker error:", err);
+            container.innerHTML = '<p class="empty-list-msg">Failed to load contest tracking data.</p>';
         });
 }

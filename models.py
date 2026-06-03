@@ -33,3 +33,11 @@ class ProblemLog(Base):
     custom_notes = Column(Text, nullable=True)
     solved_date = Column(String, index=True) # 'YYYY-MM-DD'
     created_at = Column(DateTime, default=datetime.utcnow)
+
+class CodeforcesContest(Base):
+    __tablename__ = "codeforces_contests"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String)
+    start_time_seconds = Column(Integer)
+    phase = Column(String)

@@ -601,6 +601,23 @@ input:focus, select:focus, textarea:focus {
     border-radius: 10px;
 }
 
+.participation-real {
+    border-left: 4px solid var(--accent-blue) !important;
+}
+
+.participation-virtual {
+    border-left: 4px solid var(--accent-orange) !important;
+}
+
+.participation-practice {
+    border-left: 4px solid var(--accent-green) !important;
+}
+
+.participation-unattempted {
+    border-left: 4px solid var(--text-muted) !important;
+    opacity: 0.7;
+}
+
 .upsolve-left {
     display: flex;
     flex-direction: column;

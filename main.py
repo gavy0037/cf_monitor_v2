@@ -1,9 +1,11 @@
-from fastapi import FastAPI, Depends, HTTPException, Query
+from fastapi import FastAPI, Depends, HTTPException, Query, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session
 from datetime import datetime, date as date_type, timedelta
 import os
+import urllib.request
+import json
 
 from database import engine, Base, get_db
 import models, schemas, cf_client
@@ -268,57 +270,102 @@ def create_problem_log(log_in: schemas.ProblemLogCreate, db: Session = Depends(g
     db.refresh(db_log)
     return db_log
 
-@app.get("/api/contests/upsolve")
-def get_upsolve_tracker(handle: str = Query("Gavy0037"), db: Session = Depends(get_db)):
-    # Fetch recent submissions
-    submissions = cf_client.get_user_status(handle, count=250)
+def sync_contests_background(db: Session):
+    try:
+        req = urllib.request.Request("https://codeforces.com/api/contest.list?gym=false", headers={'User-Agent': 'Mozilla/5.0'})
+        with urllib.request.urlopen(req, timeout=10.0) as response:
+            data = json.loads(response.read().decode())
+        if data["status"] == "OK":
+            contests = data["result"]
+            # Find the top 10 finished CF contests
+            finished = [c for c in contests if c.get("phase") == "FINISHED" and c.get("type") == "CF"][:10]
+            for c in finished:
+                db_contest = db.query(models.CodeforcesContest).filter(models.CodeforcesContest.id == c["id"]).first()
+                if not db_contest:
+                    db_contest = models.CodeforcesContest(
+                        id=c["id"],
+                        name=c["name"],
+                        start_time_seconds=c.get("startTimeSeconds", 0),
+                        phase=c.get("phase")
+                    )
+                    db.add(db_contest)
+            db.commit()
+    except Exception as e:
+        print(f"Error syncing contests: {e}")
+
+@app.get("/api/contests/tracker")
+def get_contest_tracker(background_tasks: BackgroundTasks, handle: str = Query("Gavy0037"), db: Session = Depends(get_db)):
+    # 1. Trigger background sync if needed (could be optimized with a timestamp check)
+    background_tasks.add_task(sync_contests_background, db)
     
-    # Identify unique contests the user submitted to
-    # We will look at the last 5 contests based on submission time
-    contests_map = {}
+    # 2. Fetch the 5 most recent finished contests from DB
+    latest_contests = db.query(models.CodeforcesContest).order_by(models.CodeforcesContest.start_time_seconds.desc()).limit(5).all()
+    
+    if not latest_contests:
+        # If DB is empty, try to sync synchronously just this once
+        sync_contests_background(db)
+        latest_contests = db.query(models.CodeforcesContest).order_by(models.CodeforcesContest.start_time_seconds.desc()).limit(5).all()
+        
+    contest_ids = [c.id for c in latest_contests]
+    
+    # 3. Fetch user recent submissions
+    submissions = cf_client.get_user_status(handle, count=300)
+    
+    # 4. Process submissions for those specific contests
+    contests_map = {
+        c.id: {
+            "contest_id": c.id,
+            "name": c.name,
+            "problems_submitted": set(),
+            "problems_solved": set(),
+            "participation_type": "PRACTICE" # Default before checking
+        } for c in latest_contests
+    }
+    
     for sub in submissions:
-        contest_id = sub.get("contestId")
-        if not contest_id or contest_id >= 10000:  # Skip gym contests
-            continue
-        
-        prob = sub.get("problem", {})
-        prob_index = prob.get("index", "")
-        verdict = sub.get("verdict")
-        
-        if contest_id not in contests_map:
-            contests_map[contest_id] = {
-                "contest_id": contest_id,
-                "problems_submitted": set(),
-                "problems_solved": set(),
-            }
+        cid = sub.get("contestId")
+        if cid in contests_map:
+            prob_index = sub.get("problem", {}).get("index", "")
+            verdict = sub.get("verdict")
+            author = sub.get("author", {})
+            p_type = author.get("participantType", "")
             
-        contests_map[contest_id]["problems_submitted"].add(prob_index)
-        if verdict == "OK":
-            contests_map[contest_id]["problems_solved"].add(prob_index)
-            
-    # Sort contests descending
-    sorted_contest_ids = sorted(contests_map.keys(), reverse=True)[:5]
-    
+            contests_map[cid]["problems_submitted"].add(prob_index)
+            if verdict == "OK":
+                contests_map[cid]["problems_solved"].add(prob_index)
+                
+            current_type = contests_map[cid]["participation_type"]
+            if p_type == "CONTESTANT":
+                contests_map[cid]["participation_type"] = "REAL"
+            elif p_type == "VIRTUAL" and current_type != "REAL":
+                contests_map[cid]["participation_type"] = "VIRTUAL"
+                
+    # 5. Format results
     results = []
-    for cid in sorted_contest_ids:
-        c_info = contests_map[cid]
-        # We want to check if they submitted anything during/after contest, and what status 'C' is
+    for c in latest_contests:
+        c_info = contests_map[c.id]
         c_problems = list(c_info["problems_submitted"])
         solved = "C" in c_info["problems_solved"]
         attempted = "C" in c_info["problems_submitted"]
         
+        # Determine actual participation type
+        part_type = c_info["participation_type"]
+        if not c_problems:
+            part_type = "UNATTEMPTED"
+            
         status = "Not Attempted"
         if solved:
-            status = "Upsolved" if not attempted else "Solved" # If they solved it, they did it!
+            status = "Upsolved" if not attempted else "Solved"
         elif attempted:
             status = "Attempted but Failed"
             
-        # Try to guess contest name (e.g. from index or fetch if needed, but we keep it lightweight)
         results.append({
-            "contest_id": cid,
+            "contest_id": c.id,
+            "contest_name": c.name,
             "submitted_problems": sorted(c_problems),
             "c_status": status,
-            "c_solved": solved
+            "c_solved": solved,
+            "participation_type": part_type
         })
         
     return results
