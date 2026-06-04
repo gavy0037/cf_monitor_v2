@@ -3,9 +3,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session
 from datetime import datetime, date as date_type, timedelta
+from concurrent.futures import ThreadPoolExecutor
 import os
 import urllib.request
 import json
+import time
 
 from database import engine, Base, get_db
 import models, schemas, cf_client
@@ -13,6 +15,10 @@ import models, schemas, cf_client
 # Initialize database tables
 # Base.metadata.create_all(bind=engine) # Removed to prevent Vercel invocation crash on startup
 app = FastAPI(title="Codeforces Progress Monitor")
+
+# Cooldown for contest.list sync (seconds)
+_last_contest_sync = 0
+CONTEST_SYNC_COOLDOWN = 300  # 5 minutes
 
 # Configure CORS
 app.add_middleware(
@@ -25,8 +31,13 @@ app.add_middleware(
 
 @app.get("/api/dashboard")
 def get_dashboard(handle: str = Query("Gavy0037"), db: Session = Depends(get_db)):
-    # 1. Fetch user info from CF API
-    cf_user = cf_client.get_user_info(handle)
+    # 1. Fetch user info AND submissions in parallel
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        future_user = executor.submit(cf_client.get_user_info, handle)
+        future_subs = executor.submit(cf_client.get_user_status, handle, 150)
+        cf_user = future_user.result()
+        submissions = future_subs.result()
+    
     if not cf_user:
         raise HTTPException(status_code=404, detail=f"Codeforces handle '{handle}' not found.")
     
@@ -44,9 +55,6 @@ def get_dashboard(handle: str = Query("Gavy0037"), db: Session = Depends(get_db)
     db_profile.max_rating = max_rating
     db_profile.last_fetched = datetime.utcnow()
     db.commit()
-    
-    # 2. Fetch user submissions from CF API
-    submissions = cf_client.get_user_status(handle, count=150)
     
     # 3. Calculate daily statistics (using UTC)
     today_str = datetime.utcnow().strftime('%Y-%m-%d')
@@ -197,7 +205,7 @@ def get_history(handle: str, db: Session = Depends(get_db)):
     return history
 
 def populate_database(handle: str, target_date: str, db: Session):
-    submissions = cf_client.get_user_status(handle, count=1000)
+    submissions = cf_client.get_user_status(handle, count=300)
     
     ac_set = set()
     wa_count = 0
@@ -295,8 +303,12 @@ def sync_contests_background(db: Session):
 
 @app.get("/api/contests/tracker")
 def get_contest_tracker(background_tasks: BackgroundTasks, handle: str = Query("Gavy0037"), db: Session = Depends(get_db)):
-    # 1. Trigger background sync if needed (could be optimized with a timestamp check)
-    background_tasks.add_task(sync_contests_background, db)
+    # 1. Trigger background sync only if cooldown has elapsed
+    global _last_contest_sync
+    now = time.time()
+    if now - _last_contest_sync > CONTEST_SYNC_COOLDOWN:
+        _last_contest_sync = now
+        background_tasks.add_task(sync_contests_background, db)
     
     # 2. Fetch the 5 most recent finished contests from DB
     latest_contests = db.query(models.CodeforcesContest).order_by(models.CodeforcesContest.start_time_seconds.desc()).limit(5).all()

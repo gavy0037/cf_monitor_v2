@@ -1,6 +1,15 @@
 let document_handle = "";
 const API_BASE_URL = ""; // Relative URL since we mount the frontend on FastAPI
 
+// In-memory cache to avoid redundant fetches on tab switches
+const _cache = {
+    history: null,
+    contestTracker: null,
+    lastHistoryFetch: 0,
+    lastTrackerFetch: 0,
+    CACHE_TTL: 60000 // 60 seconds
+};
+
 document.addEventListener("DOMContentLoaded", () => {
     checkLoginState();
     initNavigation();
@@ -52,22 +61,25 @@ function handleLogin(e) {
     submitBtn.innerText = "Verifying Handle...";
 
     // Step 1: Verify handle via dashboard endpoint
-    fetch(`${API_BASE_URL}/api/dashboard?handle=${handleInput}`)
+    const dashPromise = fetch(`${API_BASE_URL}/api/dashboard?handle=${handleInput}`)
         .then(res => {
             if (!res.ok) throw new Error("Handle not found or API error");
             return res.json();
-        })
-        .then(dashData => {
-            // Step 2: Backfill past 5 days of history
-            submitBtn.innerText = "Fetching History...";
-            return fetch(`${API_BASE_URL}/api/backfill/${handleInput}`)
-                .then(res => res.json())
-                .then(() => dashData); // pass dashData along
-        })
-        .then(dashData => {
-            // Save handle to local storage and show app
+        });
+
+    // Step 2: Fire backfill in parallel (don't block on it)
+    const backfillPromise = fetch(`${API_BASE_URL}/api/backfill/${handleInput}`)
+        .then(res => res.json())
+        .catch(() => null); // Non-critical, swallow errors
+
+    submitBtn.innerText = "Loading Dashboard...";
+
+    Promise.all([dashPromise, backfillPromise])
+        .then(([dashData]) => {
             localStorage.setItem("cf_handle", handleInput);
             document_handle = handleInput;
+            _cache.history = null;
+            _cache.contestTracker = null;
             showAppScreen();
             renderDashboard(dashData);
         })
@@ -85,6 +97,8 @@ function handleLogin(e) {
 function logout() {
     localStorage.removeItem("cf_handle");
     document_handle = "";
+    _cache.history = null;
+    _cache.contestTracker = null;
     showLoginScreen();
     
     // Clear display values
@@ -287,6 +301,14 @@ function initForms() {
 // History Loader
 function loadHistory() {
     const timeline = document.getElementById("history-timeline-list");
+    
+    // Use cached data if fresh enough
+    const now = Date.now();
+    if (_cache.history && (now - _cache.lastHistoryFetch) < _cache.CACHE_TTL) {
+        renderHistoryTimeline(_cache.history);
+        return;
+    }
+    
     timeline.innerHTML = '<p class="empty-list-msg">Loading history...</p>';
 
     fetch(`${API_BASE_URL}/api/history?handle=${document_handle}`)
@@ -295,37 +317,44 @@ function loadHistory() {
             return res.json();
         })
         .then(data => {
-            timeline.innerHTML = "";
-            if (data.length === 0) {
-                timeline.innerHTML = '<p class="empty-list-msg">No history cached in SQLite yet.</p>';
-                return;
-            }
-
-            data.forEach((day, index) => {
-                const div = document.createElement("div");
-                div.className = `timeline-item ${index === 0 ? "active" : ""}`;
-                div.dataset.date = day.date;
-                div.innerHTML = `
-                    <span class="timeline-date">${day.date}</span>
-                    <span class="timeline-stats">${day.accepted_count} AC / ${day.wa_count || 0} WA | Avg: ${day.average_difficulty || 0}</span>
-                `;
-
-                div.addEventListener("click", () => {
-                    document.querySelectorAll(".timeline-item").forEach(item => item.classList.remove("active"));
-                    div.classList.add("active");
-                    loadDayDetails(day.date);
-                });
-
-                timeline.appendChild(div);
-            });
-
-            // Load details for first day initially
-            loadDayDetails(data[0].date);
+            _cache.history = data;
+            _cache.lastHistoryFetch = Date.now();
+            renderHistoryTimeline(data);
         })
         .catch(err => {
             console.error("History loading error:", err);
             timeline.innerHTML = '<p class="empty-list-msg">Failed to load history.</p>';
         });
+}
+
+function renderHistoryTimeline(data) {
+    const timeline = document.getElementById("history-timeline-list");
+    timeline.innerHTML = "";
+    if (data.length === 0) {
+        timeline.innerHTML = '<p class="empty-list-msg">No history cached in SQLite yet.</p>';
+        return;
+    }
+
+    data.forEach((day, index) => {
+        const div = document.createElement("div");
+        div.className = `timeline-item ${index === 0 ? "active" : ""}`;
+        div.dataset.date = day.date;
+        div.innerHTML = `
+            <span class="timeline-date">${day.date}</span>
+            <span class="timeline-stats">${day.accepted_count} AC / ${day.wa_count || 0} WA | Avg: ${day.average_difficulty || 0}</span>
+        `;
+
+        div.addEventListener("click", () => {
+            document.querySelectorAll(".timeline-item").forEach(item => item.classList.remove("active"));
+            div.classList.add("active");
+            loadDayDetails(day.date);
+        });
+
+        timeline.appendChild(div);
+    });
+
+    // Load details for first day initially
+    loadDayDetails(data[0].date);
 }
 
 // Load Specific Day Details
@@ -401,6 +430,14 @@ function loadDayDetails(date) {
 // Load Upsolve Tracker (now Contest Tracker)
 function loadUpsolveTracker() {
     const container = document.getElementById("upsolve-list-display");
+    
+    // Use cached data if fresh enough
+    const now = Date.now();
+    if (_cache.contestTracker && (now - _cache.lastTrackerFetch) < _cache.CACHE_TTL) {
+        renderContestTracker(_cache.contestTracker);
+        return;
+    }
+    
     container.innerHTML = '<p class="empty-list-msg">Loading contest tracking...</p>';
 
     fetch(`${API_BASE_URL}/api/contests/tracker?handle=${document_handle}`)
@@ -409,34 +446,41 @@ function loadUpsolveTracker() {
             return res.json();
         })
         .then(data => {
-            container.innerHTML = "";
-            if (data.length === 0) {
-                container.innerHTML = '<p class="empty-list-msg">No contest data available.</p>';
-                return;
-            }
-
-            data.forEach(contest => {
-                const div = document.createElement("div");
-                const partTypeClass = contest.participation_type ? contest.participation_type.toLowerCase() : "unattempted";
-                div.className = `upsolve-item participation-${partTypeClass}`;
-
-                let statusClass = "not-attempted";
-                if (contest.c_status === "Solved") statusClass = "solved";
-                else if (contest.c_status === "Upsolved") statusClass = "upsolved";
-                else if (contest.c_status === "Attempted but Failed") statusClass = "failed";
-
-                div.innerHTML = `
-                    <div class="upsolve-left">
-                        <span class="upsolve-title">${contest.contest_name} (#${contest.contest_id})</span>
-                        <span class="upsolve-meta">Participation: <strong>${contest.participation_type}</strong> | Submitted: ${contest.submitted_problems.join(", ") || "None"}</span>
-                    </div>
-                    <span class="upsolve-status ${statusClass}">${contest.c_status}</span>
-                `;
-                container.appendChild(div);
-            });
+            _cache.contestTracker = data;
+            _cache.lastTrackerFetch = Date.now();
+            renderContestTracker(data);
         })
         .catch(err => {
             console.error("Contest tracker error:", err);
             container.innerHTML = '<p class="empty-list-msg">Failed to load contest tracking data.</p>';
         });
+}
+
+function renderContestTracker(data) {
+    const container = document.getElementById("upsolve-list-display");
+    container.innerHTML = "";
+    if (data.length === 0) {
+        container.innerHTML = '<p class="empty-list-msg">No contest data available.</p>';
+        return;
+    }
+
+    data.forEach(contest => {
+        const div = document.createElement("div");
+        const partTypeClass = contest.participation_type ? contest.participation_type.toLowerCase() : "unattempted";
+        div.className = `upsolve-item participation-${partTypeClass}`;
+
+        let statusClass = "not-attempted";
+        if (contest.c_status === "Solved") statusClass = "solved";
+        else if (contest.c_status === "Upsolved") statusClass = "upsolved";
+        else if (contest.c_status === "Attempted but Failed") statusClass = "failed";
+
+        div.innerHTML = `
+            <div class="upsolve-left">
+                <span class="upsolve-title">${contest.contest_name} (#${contest.contest_id})</span>
+                <span class="upsolve-meta">Participation: <strong>${contest.participation_type}</strong> | Submitted: ${contest.submitted_problems.join(", ") || "None"}</span>
+            </div>
+            <span class="upsolve-status ${statusClass}">${contest.c_status}</span>
+        `;
+        container.appendChild(div);
+    });
 }
