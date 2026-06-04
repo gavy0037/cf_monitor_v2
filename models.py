@@ -9,6 +9,7 @@ class UserProfile(Base):
     current_rating = Column(Integer, default=0)
     max_rating = Column(Integer, default=0)
     last_fetched = Column(DateTime, default=datetime.utcnow)
+    last_backfill_date = Column(String, nullable=True)  # 'YYYY-MM-DD', tracks last successful backfill
 
 class DailyStats(Base):
     __tablename__ = "daily_stats"

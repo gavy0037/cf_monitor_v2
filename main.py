@@ -109,30 +109,57 @@ def get_dashboard(handle: str = Query("Gavy0037"), db: Session = Depends(get_db)
 @app.get("/api/backfill/{handle}")
 def backfill_history(handle: str, db: Session = Depends(get_db)):
     """
-    Fetch submissions from CF API and backfill daily_stats
-    for the past 5 days (excluding today) for the given handle.
-    Called once on login to pre-populate historical data.
+    Dynamically backfills daily_stats for all missing days since the last
+    successful backfill. Uses last_backfill_date from UserProfile to compute
+    the gap. Estimates submission count as gap_days * 40, capped at 1000.
     """
-    # Check if historical data already exists for this handle
-    today_str = datetime.utcnow().strftime('%Y-%m-%d')
-    existing_history = db.query(models.DailyStats).filter(
-        models.DailyStats.handle == handle,
-        models.DailyStats.date < today_str
-    ).first()
-    
-    if existing_history:
-        return {"handle": handle, "message": "Historical data already exists. Skipping backfill.", "backfilled_dates": [], "summary": []}
-
-    submissions = cf_client.get_user_status(handle, count=500)
-    if not submissions:
-        raise HTTPException(status_code=404, detail=f"No submissions found for handle '{handle}'.")
-
-    # Build date range: past 5 days (not including today)
     today = datetime.utcnow().date()
-    target_dates = [(today - timedelta(days=i)).strftime('%Y-%m-%d') for i in range(1, 6)]
+    today_str = today.strftime('%Y-%m-%d')
 
-    # Group submissions by date
-    day_buckets: dict = {d: {"ac": set(), "wa": 0, "difficulties": []} for d in target_dates}
+    # Determine how far back to look
+    profile = db.query(models.UserProfile).filter(models.UserProfile.cf_handle == handle).first()
+
+    if profile and profile.last_backfill_date:
+        last_date = datetime.strptime(profile.last_backfill_date, '%Y-%m-%d').date()
+        gap_days = (today - last_date).days
+    else:
+        gap_days = 5  # Default for first-time users
+
+    # Nothing to do if we already backfilled today
+    if gap_days <= 0:
+        return {"handle": handle, "message": "Already up to date.", "backfilled_dates": [], "summary": []}
+
+    # Cap at 30 days max to keep things reasonable
+    gap_days = min(gap_days, 30)
+
+    # Build target dates (excluding today)
+    target_dates = [(today - timedelta(days=i)).strftime('%Y-%m-%d') for i in range(1, gap_days + 1)]
+
+    # Find which dates already have data
+    existing_dates = set(
+        row.date for row in db.query(models.DailyStats.date).filter(
+            models.DailyStats.handle == handle,
+            models.DailyStats.date.in_(target_dates)
+        ).all()
+    )
+
+    missing_dates = [d for d in target_dates if d not in existing_dates]
+
+    if not missing_dates:
+        # All filled, just update the marker
+        if profile:
+            profile.last_backfill_date = today_str
+            db.commit()
+        return {"handle": handle, "message": "All recent days already backfilled.", "backfilled_dates": [], "summary": []}
+
+    # Estimate how many submissions to pull: 40 per day, capped at 1000
+    fetch_count = min(gap_days * 40, 1000)
+    submissions = cf_client.get_user_status(handle, count=fetch_count)
+    if not submissions:
+        return {"handle": handle, "message": "No submissions found.", "backfilled_dates": [], "summary": []}
+
+    # Group submissions only for missing dates
+    day_buckets: dict = {d: {"ac": set(), "wa": 0, "difficulties": []} for d in missing_dates}
 
     for sub in submissions:
         creation_time = sub.get("creationTimeSeconds", 0)
@@ -153,27 +180,28 @@ def backfill_history(handle: str, db: Session = Depends(get_db)):
         elif verdict != "OK":
             day_buckets[sub_date_str]["wa"] += 1
 
-    # Upsert into daily_stats for each target date
+    # Insert stats only for missing dates
     for date_str, bucket in day_buckets.items():
         ac_count = len(bucket["ac"])
         wa_count = bucket["wa"]
         diffs = bucket["difficulties"]
         avg_diff = round(sum(diffs) / len(diffs), 1) if diffs else 0.0
 
-        db_stats = db.query(models.DailyStats).filter(models.DailyStats.date == date_str, models.DailyStats.handle == handle).first()
-        if not db_stats:
-            db_stats = models.DailyStats(date=date_str, handle=handle)
-            db.add(db_stats)
-
+        db_stats = models.DailyStats(date=date_str, handle=handle)
         db_stats.accepted_count = ac_count
         db_stats.wa_count = wa_count
         db_stats.average_difficulty = avg_diff
+        db.add(db_stats)
+
+    # Update the backfill marker
+    if profile:
+        profile.last_backfill_date = today_str
 
     db.commit()
 
     return {
         "handle": handle,
-        "backfilled_dates": target_dates,
+        "backfilled_dates": missing_dates,
         "summary": [
             {
                 "date": d,
@@ -182,24 +210,17 @@ def backfill_history(handle: str, db: Session = Depends(get_db)):
                 "avg_difficulty": round(sum(day_buckets[d]["difficulties"]) / len(day_buckets[d]["difficulties"]), 1)
                     if day_buckets[d]["difficulties"] else 0.0
             }
-            for d in target_dates
+            for d in missing_dates
         ]
     }
 
 @app.get("/api/history")
 def get_history(handle: str, db: Session = Depends(get_db)):
-    # Automatically trigger backfill if no past data exists
-    today_str = datetime.utcnow().strftime('%Y-%m-%d')
-    existing_history = db.query(models.DailyStats).filter(
-        models.DailyStats.handle == handle,
-        models.DailyStats.date < today_str
-    ).first()
-    
-    if not existing_history:
-        try:
-            backfill_history(handle, db)
-        except HTTPException:
-            pass # Ignore if it raises 404 due to no submissions
+    # Always attempt incremental backfill (it no-ops if all days are filled)
+    try:
+        backfill_history(handle, db)
+    except Exception:
+        pass
             
     history = db.query(models.DailyStats).filter(models.DailyStats.handle == handle).order_by(models.DailyStats.date.desc()).all()
     return history
